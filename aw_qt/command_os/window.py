@@ -34,7 +34,9 @@ from .ui.theme import COLOR_MODES, ThemeManager
 
 MINIMUM_TIMER_SIZE = (220, 96)
 DEFAULT_TIMER_SIZE = (420, 156)
-RESIZE_MARGIN = 8
+CARD_INSET = 2
+SHADOW_INSET = 10
+RESIZE_HANDLE_WIDTH = 8
 CLOCK_FONT_FAMILIES = {
     "darwin": "Helvetica Neue",
     "linux": "DejaVu Sans",
@@ -240,11 +242,21 @@ class FloatingTimerWindow(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         palette = self._theme.timer_palette
-        shadow = self.rect().adjusted(10, 10, -2, -2)
+        shadow = self.rect().adjusted(
+            SHADOW_INSET,
+            SHADOW_INSET,
+            -CARD_INSET,
+            -CARD_INSET,
+        )
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(palette.shadow))
         painter.drawRoundedRect(shadow, 8, 8)
-        card = self.rect().adjusted(2, 2, -10, -10)
+        card = self.rect().adjusted(
+            CARD_INSET,
+            CARD_INSET,
+            -SHADOW_INSET,
+            -SHADOW_INSET,
+        )
         painter.setPen(QPen(QColor(palette.border), 3))
         painter.setBrush(QColor(palette.card))
         painter.drawRoundedRect(card, 8, 8)
@@ -319,13 +331,13 @@ class FloatingTimerWindow(QWidget):
 
     def _resize_edges(self, position: QPoint):
         edges = Qt.Edge(0)
-        if position.x() <= RESIZE_MARGIN:
+        if position.x() <= CARD_INSET + RESIZE_HANDLE_WIDTH:
             edges |= Qt.Edge.LeftEdge
-        elif position.x() >= self.width() - RESIZE_MARGIN:
+        elif position.x() >= self.width() - SHADOW_INSET - RESIZE_HANDLE_WIDTH:
             edges |= Qt.Edge.RightEdge
-        if position.y() <= RESIZE_MARGIN:
+        if position.y() <= CARD_INSET + RESIZE_HANDLE_WIDTH:
             edges |= Qt.Edge.TopEdge
-        elif position.y() >= self.height() - RESIZE_MARGIN:
+        elif position.y() >= self.height() - SHADOW_INSET - RESIZE_HANDLE_WIDTH:
             edges |= Qt.Edge.BottomEdge
         return edges
 

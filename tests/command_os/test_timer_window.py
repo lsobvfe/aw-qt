@@ -1,6 +1,6 @@
 import sys
 
-from PyQt6.QtCore import QObject, Qt, pyqtSignal
+from PyQt6.QtCore import QObject, QPoint, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
@@ -8,9 +8,11 @@ from PyQt6.QtWidgets import QApplication
 from aw_qt.command_os.models import parse_timer_state
 from aw_qt.command_os.ui.theme import ThemeManager
 from aw_qt.command_os.window import (
+    CARD_INSET,
     CLOCK_FONT_FAMILIES,
     FloatingTimerWindow,
     MINIMUM_TIMER_SIZE,
+    SHADOW_INSET,
 )
 
 
@@ -100,6 +102,16 @@ def test_timer_window_is_freely_resizable_and_double_click_toggles() -> None:
         image.pixelColor(x, y) != accent
         for y in range(window.height() - 24, window.height() - 10)
         for x in range(20, window.width() - 20)
+    )
+    visible_card_corner = QPoint(
+        window.width() - SHADOW_INSET - 1,
+        window.height() - SHADOW_INSET - 1,
+    )
+    assert window._resize_edges(visible_card_corner) == (
+        Qt.Edge.RightEdge | Qt.Edge.BottomEdge
+    )
+    assert window._resize_edges(QPoint(CARD_INSET, CARD_INSET)) == (
+        Qt.Edge.LeftEdge | Qt.Edge.TopEdge
     )
 
     QTest.mouseDClick(window, Qt.MouseButton.LeftButton)
