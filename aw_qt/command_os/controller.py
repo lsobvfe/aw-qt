@@ -38,7 +38,7 @@ class TimerController(QObject):
     def start(self) -> None:
         self._refresh_timer.start()
         self._display_timer.start()
-        self.refresh()
+        QTimer.singleShot(0, self.refresh)
 
     def refresh(self) -> None:
         if "refresh" in self._pending.values():

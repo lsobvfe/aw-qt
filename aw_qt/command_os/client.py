@@ -20,6 +20,7 @@ class CommandClient(QObject):
         self._execute_url = QUrl(base_url.rstrip("/") + "/api/v1/commands/execute")
         self._token_provider = token_provider
         self._network = QNetworkAccessManager(self)
+        self._network.finished.connect(self._handle_reply)
 
     def execute(self, command: str, args: dict | None = None) -> str:
         token = self._token_provider().strip()
@@ -48,7 +49,6 @@ class CommandClient(QObject):
         }
         reply = self._network.post(request, QByteArray(json.dumps(body).encode("utf-8")))
         reply.setProperty("command_os_request_id", request_id)
-        reply.finished.connect(lambda current=reply: self._handle_reply(current))
         return request_id
 
     def _handle_reply(self, reply: QNetworkReply) -> None:

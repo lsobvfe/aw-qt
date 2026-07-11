@@ -19,6 +19,21 @@ class FakeClient(QObject):
         return f"request-{self.request_count}"
 
 
+def test_start_defers_initial_refresh_until_event_loop_is_running() -> None:
+    app = QCoreApplication.instance() or QCoreApplication([])
+    client = FakeClient()
+    controller = TimerController(client)
+
+    controller.start()
+    assert client.requests == []
+
+    app.processEvents()
+    assert client.requests == [("sp.time_log.desktop.snapshot", {})]
+    assert controller._pending == {"request-1": "refresh"}
+    controller._refresh_timer.stop()
+    controller._display_timer.stop()
+
+
 def test_failed_refresh_clears_pending_request() -> None:
     app = QCoreApplication.instance() or QCoreApplication([])
     client = FakeClient()

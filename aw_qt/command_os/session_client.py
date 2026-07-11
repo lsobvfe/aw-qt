@@ -17,6 +17,7 @@ class SessionClient(QObject):
         super().__init__(parent)
         self._url = QUrl(base_url.rstrip("/") + "/api/v1/auth/refresh")
         self._network = QNetworkAccessManager(self)
+        self._network.finished.connect(self._handle)
 
     def refresh(self, refresh_token: str) -> None:
         request = QNetworkRequest(self._url)
@@ -26,7 +27,6 @@ class SessionClient(QObject):
             request,
             QByteArray(json.dumps({"refresh_token": refresh_token}).encode("utf-8")),
         )
-        reply.finished.connect(lambda current=reply: self._handle(current))
 
     def _handle(self, reply: QNetworkReply) -> None:
         try:
