@@ -1020,6 +1020,39 @@ reference = "main"
 resolved_reference = "86d119ed202c1f9f86923563c2754cf93c1ec303"
 
 [[package]]
+name = "pyqt6-webengine"
+version = "6.5.0"
+description = "Python bindings for the Qt WebEngine framework"
+optional = false
+python-versions = ">=3.7"
+groups = ["pyqt"]
+files = [
+    {file = "PyQt6_WebEngine-6.5.0-cp37-abi3-macosx_10_14_universal2.whl", hash = "sha256:45849365b1ba196724dc6a520ceed3ddaca4e9c09da28eac3c448d26cefdf001"},
+    {file = "PyQt6_WebEngine-6.5.0-cp37-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:26ff8d3362328bed09f8f1155c48122b83daf35998d6d299de1dbfcd9d4fc47c"},
+    {file = "PyQt6_WebEngine-6.5.0-cp37-abi3-win_amd64.whl", hash = "sha256:83a7e97a518d4001fb6c22e26a71e28d6d3b38c40ee0cbe21abfa46982b203d3"},
+    {file = "PyQt6_WebEngine-6.5.0.tar.gz", hash = "sha256:8ba9db56c4c181a2a2fab1673ca35e5b63dc69113f085027ddc43c710b6d6ee9"},
+]
+
+[package.dependencies]
+PyQt6 = ">=6.2.0"
+PyQt6-sip = ">=13.4,<14"
+PyQt6-WebEngine-Qt6 = ">=6.5.0"
+
+[[package]]
+name = "pyqt6-webengine-qt6"
+version = "6.5.3"
+description = "The subset of a Qt installation needed by PyQt6-WebEngine."
+optional = false
+python-versions = "*"
+groups = ["pyqt"]
+files = [
+    {file = "PyQt6_WebEngine_Qt6-6.5.3-py3-none-macosx_10_14_x86_64.whl", hash = "sha256:b8abe4d9d9b1b7da5552e8a48b5aec8933b3b2693aa5881b8a6d6cbf7b000611"},
+    {file = "PyQt6_WebEngine_Qt6-6.5.3-py3-none-macosx_11_0_arm64.whl", hash = "sha256:6ef93cc97980f2c25f77d52a758ab5c75cdea648b8aa6aa0310e69850c390398"},
+    {file = "PyQt6_WebEngine_Qt6-6.5.3-py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:0eee9b5b9715add644b74c7f82f6984672bc1bb7feb86f447ec056ab1aa99b30"},
+    {file = "PyQt6_WebEngine_Qt6-6.5.3-py3-none-win_amd64.whl", hash = "sha256:a64827f39ace4f5507941d156e16a769bd622380c88f316dac4d7a62f5d180a9"},
+]
+
+[[package]]
 name = "pywin32-ctypes"
 version = "0.2.2"
 description = "A (partial) reimplementation of pywin32 using ctypes/cffi"
@@ -1369,4 +1402,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10,<3.14"
-content-hash = "dc7a448d2036a0847199e8293c23ca714ffdf5ab00f57c3bf1d9db606176f292"
+content-hash = "6aa51a773d430a59456b53f4a7c7b81bd5cbf27c1479f27cdc0fe76e0d340973"

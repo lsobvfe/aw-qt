@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import logging
+from uuid import uuid4
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
 from .client import CommandClient
-from .models import TimerState, parse_command_session, parse_timer_state
+from .models import TimerState, parse_command_session, parse_tag_catalog, parse_timer_state
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ class TimerController(QObject):
     def refresh(self) -> None:
         if "refresh" in self._pending.values():
             return
-        self._track(self._client.execute("sp.time_log.open", {"view": "launcher"}), "refresh")
+        self._track(self._client.execute("sp.time_log.desktop.snapshot", {}), "refresh")
 
     def toggle(self) -> None:
         session = self._state.selected
@@ -67,10 +68,80 @@ class TimerController(QObject):
             "finish",
         )
 
+    def start_activity(self, activity_id: str) -> None:
+        activity = next(
+            (item for item in self._state.activities if item.activity_id == activity_id),
+            None,
+        )
+        if activity is None:
+            return
+        self._track(
+            self._client.execute(
+                "sp.time_log.timer.start",
+                {
+                    "activity": activity.command_payload(),
+                    "mode": "countup",
+                    "tags": list(activity.tags),
+                    "idempotency_key": f"desktop-start:{uuid4().hex}",
+                },
+            ),
+            "start",
+        )
+
+    def change_activity(self, activity_id: str) -> None:
+        session = self._state.selected
+        activity = next(
+            (item for item in self._state.activities if item.activity_id == activity_id),
+            None,
+        )
+        if session is None or activity is None:
+            return
+        self._track(
+            self._client.execute(
+                "sp.time_log.timer.metadata.update",
+                {
+                    "session_id": session.session_id,
+                    "activity_id": activity.activity_id,
+                    "activity": activity.command_payload(),
+                },
+            ),
+            "session",
+        )
+
+    def update_tags(self, tags: list[str]) -> None:
+        session = self._state.selected
+        if session is None:
+            return
+        self._track(
+            self._client.execute(
+                "sp.time_log.timer.metadata.update",
+                {"session_id": session.session_id, "tags": tags},
+            ),
+            "session",
+        )
+
+    def create_tag(self, name: str) -> None:
+        value = name.strip()
+        if value:
+            self._track(
+                self._client.execute("sp.time_log.tags.create", {"name": value}),
+                "tags",
+            )
+
+    def delete_tag(self, name: str) -> None:
+        value = name.strip()
+        if value:
+            self._track(
+                self._client.execute("sp.time_log.tags.delete", {"name": value}),
+                "tags",
+            )
+
     def select(self, session_id: str) -> None:
         if any(item.session_id == session_id for item in self._state.sessions):
             self._state = TimerState(
                 sessions=self._state.sessions,
+                activities=self._state.activities,
+                tags=self._state.tags,
                 selected_session_id=session_id,
                 status=self._state.status,
                 message=self._state.message,
@@ -80,6 +151,8 @@ class TimerController(QObject):
     def report_error(self, message: str) -> None:
         self._state = TimerState(
             sessions=self._state.sessions,
+            activities=self._state.activities,
+            tags=self._state.tags,
             selected_session_id=self._state.selected_session_id,
             status="error",
             message=message,
@@ -98,7 +171,31 @@ class TimerController(QObject):
             elif operation == "session":
                 updated = parse_command_session(payload)
                 sessions = tuple(updated if item.session_id == updated.session_id else item for item in self._state.sessions)
-                self._state = TimerState(sessions=sessions, selected_session_id=updated.session_id)
+                self._state = TimerState(
+                    sessions=sessions,
+                    activities=self._state.activities,
+                    tags=self._state.tags,
+                    selected_session_id=updated.session_id,
+                )
+            elif operation == "start":
+                started = parse_command_session(payload)
+                sessions = (started, *tuple(item for item in self._state.sessions if item.session_id != started.session_id))
+                self._state = TimerState(
+                    sessions=sessions,
+                    activities=self._state.activities,
+                    tags=self._state.tags,
+                    selected_session_id=started.session_id,
+                )
+            elif operation == "tags":
+                raw_tags = payload.get("tags")
+                if not isinstance(raw_tags, list):
+                    raise ValueError("tag mutation tags must be a list")
+                self._state = TimerState(
+                    sessions=self._state.sessions,
+                    activities=self._state.activities,
+                    tags=parse_tag_catalog(raw_tags),
+                    selected_session_id=self._state.selected_session_id,
+                )
             elif operation == "finish":
                 self.refresh()
                 return
@@ -106,6 +203,8 @@ class TimerController(QObject):
             logger.exception("Time Log desktop state parsing failed")
             self._state = TimerState(
                 sessions=self._state.sessions,
+                activities=self._state.activities,
+                tags=self._state.tags,
                 selected_session_id=self._state.selected_session_id,
                 status="error",
                 message=str(exc),
@@ -119,6 +218,8 @@ class TimerController(QObject):
             self.authorization_required.emit()
         self._state = TimerState(
             sessions=self._state.sessions,
+            activities=self._state.activities,
+            tags=self._state.tags,
             selected_session_id=self._state.selected_session_id,
             status="error",
             message=message,

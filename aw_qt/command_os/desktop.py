@@ -24,6 +24,9 @@ from .client import CommandClient
 from .config import DesktopConfig, write_aw_client_config
 from .controller import TimerController
 from .session_client import SessionClient
+from .ui.theme import ThemeManager
+from .ui.web_session import TIME_LOG_PATHS
+from .ui.workbench import WebTimeLogWindow
 from .window import FloatingTimerWindow
 
 
@@ -52,10 +55,22 @@ class CommandOSDesktop(QObject):
             self._credential_error = str(exc)
         self._authorization_active = False
         self._authorization: _DesktopAuthorization | None = None
+        self._pending_time_log_view = ""
         self.client = CommandClient(config.command_os_url, self.access_token, self)
         self.session_client = SessionClient(config.command_os_url, self)
         self.controller = TimerController(self.client, self)
-        self.window = FloatingTimerWindow(self.controller, self.open_time_log)
+        self.theme = ThemeManager(self)
+        self.workbench = WebTimeLogWindow(
+            config.time_log_url,
+            lambda: self._session,
+            self.theme,
+            parent,
+        )
+        self.window = FloatingTimerWindow(
+            self.controller,
+            self.open_time_log,
+            self.theme,
+        )
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
         self._refresh_timer.timeout.connect(self._refresh_if_due)
@@ -90,8 +105,14 @@ class CommandOSDesktop(QObject):
     def open_dashboard(self) -> None:
         self._open(self._render_dashboard_url())
 
-    def open_time_log(self) -> None:
-        self._open(self.config.time_log_url)
+    def open_time_log(self, view: str = "launcher") -> None:
+        if view not in TIME_LOG_PATHS:
+            raise ValueError(f"Unsupported Time Log view: {view}")
+        if self._session is None:
+            self._pending_time_log_view = view
+            self.authorize()
+            return
+        self.workbench.open_view(view)
 
     def open_api(self) -> None:
         self._open(self.config.activitywatch_api_url)
@@ -125,6 +146,7 @@ class CommandOSDesktop(QObject):
 
     def _store_refreshed_session(self, session: dict[str, Any]) -> None:
         if self._store_session(session):
+            self.workbench.refresh_session()
             self.controller.refresh()
 
     def _store_session(self, session: dict[str, Any]) -> bool:
@@ -148,6 +170,10 @@ class CommandOSDesktop(QObject):
         self._authorization = None
         self.controller.refresh()
         self.show_timer()
+        if self._pending_time_log_view:
+            view = self._pending_time_log_view
+            self._pending_time_log_view = ""
+            self.workbench.open_view(view)
 
     def _authorization_failed(self, message: str) -> None:
         self._authorization_active = False

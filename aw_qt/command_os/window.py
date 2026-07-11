@@ -2,32 +2,96 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QPoint, QSettings, Qt
-from PyQt6.QtGui import QAction, QColor, QMouseEvent, QPainter, QPaintEvent, QPen
+import sys
+
+from PyQt6.QtCore import QByteArray, QPoint, QSettings, QTimer, Qt
+from PyQt6.QtGui import (
+    QAction,
+    QActionGroup,
+    QColor,
+    QFont,
+    QFontDatabase,
+    QFontMetrics,
+    QMouseEvent,
+    QMoveEvent,
+    QPainter,
+    QPaintEvent,
+    QPen,
+    QResizeEvent,
+)
 from PyQt6.QtWidgets import QLabel, QMenu, QVBoxLayout, QWidget
 
 from .controller import TimerController
-from .models import SIZE_PRESETS, TimerState, format_clock
+from .models import TimerState, format_clock
+from .ui.dialogs import (
+    choose_activity,
+    choose_custom_tag,
+    choose_tags,
+    prompt_new_tag,
+)
+from .ui.theme import COLOR_MODES, ThemeManager
+
+
+MINIMUM_TIMER_SIZE = (220, 96)
+DEFAULT_TIMER_SIZE = (420, 156)
+RESIZE_MARGIN = 8
+CLOCK_FONT_FAMILIES = {
+    "darwin": "Helvetica Neue",
+    "linux": "DejaVu Sans",
+    "win32": "Bahnschrift",
+}
+
+
+def clock_font_family() -> str:
+    try:
+        family = CLOCK_FONT_FAMILIES[sys.platform]
+    except KeyError as exc:
+        raise RuntimeError(f"Unsupported desktop platform: {sys.platform}") from exc
+    if family not in QFontDatabase.families():
+        raise RuntimeError(f"Required timer clock font is not installed: {family}")
+    return family
+
+
+class ElidedLabel(QLabel):
+    def paintEvent(self, event: QPaintEvent) -> None:
+        del event
+        painter = QPainter(self)
+        painter.setPen(self.palette().color(self.foregroundRole()))
+        painter.setFont(self.font())
+        text = QFontMetrics(self.font()).elidedText(
+            self.text(),
+            Qt.TextElideMode.ElideRight,
+            max(0, self.width()),
+        )
+        painter.drawText(self.rect(), int(self.alignment()), text)
 
 
 class FloatingTimerWindow(QWidget):
-    def __init__(self, controller: TimerController, open_frontend, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        controller: TimerController,
+        open_time_log_view,
+        theme: ThemeManager,
+        parent: QWidget | None = None,
+    ) -> None:
         super().__init__(parent)
         self._controller = controller
-        self._open_frontend = open_frontend
+        self._open_time_log_view = open_time_log_view
+        self._theme = theme
         self._state = TimerState(status="loading")
         self._drag_origin: QPoint | None = None
         self._settings = QSettings("CommandOS", "ActivityWatch")
         self._always_on_top = bool(self._settings.value("floating_timer/always_on_top", True, type=bool))
-        self._size_preset = str(self._settings.value("floating_timer/size", "medium"))
-        if self._size_preset not in SIZE_PRESETS:
-            self._size_preset = "medium"
-        self._title = QLabel("TIME LOG", self)
         self._clock = QLabel("00:00:00", self)
-        self._status = QLabel("正在同步", self)
+        self._footer = ElidedLabel("正在同步", self)
+        self._geometry_timer = QTimer(self)
+        self._geometry_timer.setSingleShot(True)
+        self._geometry_timer.setInterval(250)
+        self._geometry_timer.timeout.connect(self._save_geometry)
         self._configure_window()
         self._configure_layout()
         controller.state_changed.connect(self.apply_state)
+        theme.changed.connect(self._apply_theme)
 
     def _configure_window(self) -> None:
         flags = Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint
@@ -35,59 +99,78 @@ class FloatingTimerWindow(QWidget):
             flags |= Qt.WindowType.WindowStaysOnTopHint
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self._apply_size()
-        stored = self._settings.value("floating_timer/position")
-        if isinstance(stored, QPoint):
-            self.move(stored)
+        self.setMouseTracking(True)
+        self.setMinimumSize(*MINIMUM_TIMER_SIZE)
+        stored = self._settings.value("floating_timer/geometry")
+        restored = isinstance(stored, QByteArray) and self.restoreGeometry(stored)
+        if not restored:
+            self.resize(*DEFAULT_TIMER_SIZE)
 
     def _configure_layout(self) -> None:
         layout = QVBoxLayout(self)
         layout.setObjectName("floating_timer_layout")
         layout.setSpacing(0)
-        self._title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self._clock.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._status.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        layout.addWidget(self._title)
+        self._footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._clock.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._footer.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         layout.addWidget(self._clock, 1)
-        layout.addWidget(self._status)
-        self._apply_size()
+        layout.addWidget(self._footer)
+        self._apply_metrics()
 
     def apply_state(self, state: TimerState) -> None:
         self._state = state
         session = state.selected
         if session is None:
-            self._title.setText("TIME LOG")
             self._clock.setText("00:00:00")
-            self._status.setText(state.message or "当前没有计时")
+            self._footer.setText(state.message or "当前没有计时")
         else:
-            self._title.setText(session.title.upper())
             self._clock.setText(format_clock(session.displayed_seconds()))
-            self._status.setText("正在记录" if session.is_running else "已暂停")
+            prefix = "" if session.is_running else "已暂停  ·  "
+            self._footer.setText(f"{prefix}{session.footer_text}")
+        self._footer.setToolTip(self._footer.text())
         self.update()
 
-    def set_size_preset(self, preset: str) -> None:
-        if preset not in SIZE_PRESETS or preset == self._size_preset:
-            return
-        self._size_preset = preset
-        self._settings.setValue("floating_timer/size", preset)
-        self._apply_size()
-
-    def _apply_size(self) -> None:
-        width, height, clock_size, margin, text_size = SIZE_PRESETS[self._size_preset]
-        self.setFixedSize(width, height)
+    def _apply_metrics(self) -> None:
+        width = max(1, self.width())
+        height = max(1, self.height())
+        margin = max(10, min(28, round(min(width, height) * 0.08)))
+        footer_size = max(10, min(18, round(height * 0.085)))
+        clock_size = max(
+            32,
+            min(
+                round(height * 0.52),
+                round((width - margin * 2) / 5.3),
+            ),
+        )
         layout = self.layout()
         if isinstance(layout, QVBoxLayout):
-            layout.setContentsMargins(margin, max(12, margin - 4), margin, max(24, margin + 8))
-        self._title.setStyleSheet(f"font-size: {text_size}px; font-weight: 900; color: #181818;")
-        self._clock.setStyleSheet(f"font-size: {clock_size}px; font-weight: 900; color: #181818;")
-        self._status.setStyleSheet(f"font-size: {text_size}px; font-weight: 700; color: #555555;")
+            layout.setContentsMargins(margin, margin, margin, max(14, margin))
+        clock_font = QFont(clock_font_family())
+        clock_font.setPixelSize(clock_size)
+        clock_font.setWeight(QFont.Weight.DemiBold)
+        clock_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 0)
+        self._clock.setFont(clock_font)
+        footer_font = QFont(self.font())
+        footer_font.setPixelSize(footer_size)
+        footer_font.setWeight(QFont.Weight.DemiBold)
+        self._footer.setFont(footer_font)
+        self._apply_theme()
+
+    def _apply_theme(self, _resolved: str = "") -> None:
+        palette = self._theme.timer_palette
+        self._clock.setStyleSheet(f"color: {palette.clock};")
+        self._footer.setStyleSheet(f"color: {palette.footer};")
+        self.update()
 
     def set_always_on_top(self, enabled: bool) -> None:
         if self._always_on_top == enabled:
             return
         self._always_on_top = enabled
         self._settings.setValue("floating_timer/always_on_top", enabled)
+        geometry = self.saveGeometry()
         self._configure_window()
+        self.restoreGeometry(geometry)
         self.show()
 
     def contextMenuEvent(self, event) -> None:
@@ -107,13 +190,43 @@ class FloatingTimerWindow(QWidget):
                 action.setChecked(item.session_id == self._state.selected_session_id)
                 action.triggered.connect(lambda _checked=False, session_id=item.session_id: self._controller.select(session_id))
         menu.addSeparator()
-        menu.addAction("打开 Time Log", self._open_frontend)
-        size_menu = menu.addMenu("尺寸")
-        for preset, label in (("small", "小"), ("medium", "中"), ("large", "大")):
-            action = size_menu.addAction(label)
+        start_event = menu.addAction("开始新事件...")
+        start_event.setEnabled(bool(self._state.activities))
+        start_event.triggered.connect(self._start_activity)
+        change_event = menu.addAction("切换当前事件...")
+        change_event.setEnabled(session is not None and bool(self._state.activities))
+        change_event.triggered.connect(self._change_activity)
+        edit_tags = menu.addAction("编辑当前标签...")
+        edit_tags.setEnabled(session is not None and bool(self._state.tags))
+        edit_tags.triggered.connect(self._edit_tags)
+        menu.addAction("新建标签...", self._create_tag)
+        delete_tag = menu.addAction("删除自定义标签...", self._delete_tag)
+        delete_tag.setEnabled(any(not tag.is_default for tag in self._state.tags))
+        menu.addSeparator()
+        menu.addAction(
+            "打开 Time Log 启动器",
+            lambda: self._open_time_log_view("launcher"),
+        )
+        menu.addAction(
+            "打开今日编辑",
+            lambda: self._open_time_log_view("day"),
+        )
+        menu.addAction(
+            "打开统计概览",
+            lambda: self._open_time_log_view("overview"),
+        )
+        theme_menu = menu.addMenu("外观")
+        theme_group = QActionGroup(theme_menu)
+        theme_group.setExclusive(True)
+        theme_labels = {"system": "跟随系统", "light": "浅色", "dark": "暗色"}
+        for mode in COLOR_MODES:
+            action = theme_menu.addAction(theme_labels[mode])
             action.setCheckable(True)
-            action.setChecked(preset == self._size_preset)
-            action.triggered.connect(lambda _checked=False, value=preset: self.set_size_preset(value))
+            action.setChecked(self._theme.mode == mode)
+            action.triggered.connect(
+                lambda _checked=False, value=mode: self._theme.set_mode(value)
+            )
+            theme_group.addAction(action)
         topmost = QAction("始终置顶", menu)
         topmost.setCheckable(True)
         topmost.setChecked(self._always_on_top)
@@ -126,33 +239,117 @@ class FloatingTimerWindow(QWidget):
         del event
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        palette = self._theme.timer_palette
         shadow = self.rect().adjusted(10, 10, -2, -2)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#181818"))
+        painter.setBrush(QColor(palette.shadow))
         painter.drawRoundedRect(shadow, 8, 8)
         card = self.rect().adjusted(2, 2, -10, -10)
-        painter.setPen(QPen(QColor("#181818"), 3))
-        painter.setBrush(QColor("#fff8e8"))
+        painter.setPen(QPen(QColor(palette.border), 3))
+        painter.setBrush(QColor(palette.card))
         painter.drawRoundedRect(card, 8, 8)
-        session = self._state.selected
-        if session:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(session.accent))
-            painter.drawRoundedRect(card.left() + 12, card.bottom() - 6, card.width() - 24, 3, 1, 1)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
+            edges = self._resize_edges(event.position().toPoint())
+            handle = self.windowHandle()
+            if edges and handle is not None and handle.startSystemResize(edges):
+                self._drag_origin = None
+                event.accept()
+                return
             self._drag_origin = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self._drag_origin is not None and event.buttons() & Qt.MouseButton.LeftButton:
             self.move(event.globalPosition().toPoint() - self._drag_origin)
+            return
+        self._apply_resize_cursor(self._resize_edges(event.position().toPoint()))
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self._drag_origin = None
-            self._settings.setValue("floating_timer/position", self.pos())
+            self._schedule_geometry_save()
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_origin = None
+            self._controller.toggle()
+            event.accept()
+
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        super().resizeEvent(event)
+        self._apply_metrics()
+        self._schedule_geometry_save()
+
+    def moveEvent(self, event: QMoveEvent) -> None:
+        super().moveEvent(event)
+        self._schedule_geometry_save()
 
     def closeEvent(self, event) -> None:
         event.ignore()
         self.hide()
+
+    def _start_activity(self) -> None:
+        activity_id = choose_activity(self._state.activities, "开始新事件", self)
+        if activity_id:
+            self._controller.start_activity(activity_id)
+
+    def _change_activity(self) -> None:
+        activity_id = choose_activity(self._state.activities, "切换当前事件", self)
+        if activity_id:
+            self._controller.change_activity(activity_id)
+
+    def _edit_tags(self) -> None:
+        session = self._state.selected
+        if session is None:
+            return
+        selected = choose_tags(self._state.tags, session.tags, self)
+        if selected is not None:
+            self._controller.update_tags(selected)
+
+    def _create_tag(self) -> None:
+        name = prompt_new_tag(self)
+        if name:
+            self._controller.create_tag(name)
+
+    def _delete_tag(self) -> None:
+        name = choose_custom_tag(self._state.tags, self)
+        if name:
+            self._controller.delete_tag(name)
+
+    def _resize_edges(self, position: QPoint):
+        edges = Qt.Edge(0)
+        if position.x() <= RESIZE_MARGIN:
+            edges |= Qt.Edge.LeftEdge
+        elif position.x() >= self.width() - RESIZE_MARGIN:
+            edges |= Qt.Edge.RightEdge
+        if position.y() <= RESIZE_MARGIN:
+            edges |= Qt.Edge.TopEdge
+        elif position.y() >= self.height() - RESIZE_MARGIN:
+            edges |= Qt.Edge.BottomEdge
+        return edges
+
+    def _apply_resize_cursor(self, edges) -> None:
+        if edges in (
+            Qt.Edge.LeftEdge | Qt.Edge.TopEdge,
+            Qt.Edge.RightEdge | Qt.Edge.BottomEdge,
+        ):
+            self.setCursor(Qt.CursorShape.SizeFDiagCursor)
+        elif edges in (
+            Qt.Edge.RightEdge | Qt.Edge.TopEdge,
+            Qt.Edge.LeftEdge | Qt.Edge.BottomEdge,
+        ):
+            self.setCursor(Qt.CursorShape.SizeBDiagCursor)
+        elif edges & (Qt.Edge.LeftEdge | Qt.Edge.RightEdge):
+            self.setCursor(Qt.CursorShape.SizeHorCursor)
+        elif edges & (Qt.Edge.TopEdge | Qt.Edge.BottomEdge):
+            self.setCursor(Qt.CursorShape.SizeVerCursor)
+        else:
+            self.unsetCursor()
+
+    def _schedule_geometry_save(self) -> None:
+        if not self._geometry_timer.isActive():
+            self._geometry_timer.start()
+
+    def _save_geometry(self) -> None:
+        self._settings.setValue("floating_timer/geometry", self.saveGeometry())

@@ -1,7 +1,6 @@
 import pytest
 
 from aw_qt.command_os.models import (
-    SIZE_PRESETS,
     format_clock,
     parse_command_session,
     parse_timer_state,
@@ -18,16 +17,65 @@ def test_timer_snapshot_projects_running_and_paused_sessions() -> None:
                     "elapsed_seconds": 125,
                     "entry": {
                         "label": "Deep Work",
-                        "bound_object": {"accent": "#69e36d"},
+                        "bound_object": {"label": "Architecture"},
+                        "tags": ["工作", "设计"],
+                        "accent": "#69e36d",
+                        "emoji": "◆",
+                        "timer_mode": "countup",
+                        "countdown_minutes": 25,
+                        "pomodoro_work_minutes": 25,
+                        "pomodoro_rest_minutes": 5,
                     },
                 },
                 {
                     "session_id": "timer-paused",
                     "state": "paused",
                     "elapsed_seconds": 3605,
-                    "entry": {"title": "Reading"},
+                    "entry": {
+                        "title": "Reading",
+                        "label": "Reading",
+                        "bound_object": {"label": ""},
+                        "tags": ["阅读"],
+                        "accent": "#ffe14d",
+                        "emoji": "◇",
+                        "timer_mode": "countup",
+                        "countdown_minutes": 25,
+                        "pomodoro_work_minutes": 25,
+                        "pomodoro_rest_minutes": 5,
+                    },
                 },
-            ]
+            ],
+            "activities": [
+                {
+                    "id": "activity-deep-work",
+                    "title": "Deep Work",
+                    "label": "Deep Work",
+                    "bound_object": {
+                        "module": "smart_planner",
+                        "type": "activity",
+                        "id": "",
+                        "label": "Architecture",
+                    },
+                    "tags": ["工作", "设计"],
+                    "accent": "#69e36d",
+                    "emoji": "◆",
+                    "default_seconds": 1500,
+                    "source": "base",
+                    "source_group": "basic",
+                    "source_badge": "Built-in",
+                    "confirmed": True,
+                    "description": "Architecture focus",
+                    "hidden": False,
+                    "pinned": False,
+                    "priority": 5,
+                    "template_id": "template-deep-work",
+                    "conflict": False,
+                }
+            ],
+            "tag_catalog": [
+                {"name": "工作", "is_default": True},
+                {"name": "设计", "is_default": False},
+            ],
         },
         selected_session_id="timer-paused",
     )
@@ -42,6 +90,55 @@ def test_timer_snapshot_projects_running_and_paused_sessions() -> None:
         now=state.sessions[0].synchronized_at + 30
     ) == 155
     assert format_clock(state.selected.elapsed_seconds) == "01:00:05"
+    assert state.sessions[0].footer_text == "Deep Work  ·  #工作 #设计"
+    assert state.activities[0].command_payload()["bound_object"]["label"] == "Architecture"
+    assert state.activities[0].command_payload()["template_id"] == "template-deep-work"
+    assert state.activities[0].command_payload()["priority"] == 5
+    assert [tag.name for tag in state.tags] == ["工作", "设计"]
+
+
+def test_timer_snapshot_uses_backend_mode_configuration_for_clock_value() -> None:
+    countdown = parse_command_session(
+        {
+            "session_id": "countdown",
+            "state": "active",
+            "elapsed_seconds": 125,
+            "entry": {
+                "label": "Countdown",
+                "bound_object": {"label": ""},
+                "tags": [],
+                "accent": "#ffe14d",
+                "emoji": "◇",
+                "timer_mode": "countdown",
+                "countdown_minutes": 5,
+                "pomodoro_work_minutes": 25,
+                "pomodoro_rest_minutes": 5,
+            },
+        }
+    )
+    pomodoro = parse_command_session(
+        {
+            "session_id": "pomodoro",
+            "state": "paused",
+            "elapsed_seconds": 130,
+            "entry": {
+                "label": "Pomodoro",
+                "bound_object": {"label": ""},
+                "tags": [],
+                "accent": "#ffe14d",
+                "emoji": "◇",
+                "timer_mode": "pomodoro",
+                "countdown_minutes": 25,
+                "pomodoro_work_minutes": 2,
+                "pomodoro_rest_minutes": 1,
+            },
+        }
+    )
+
+    assert countdown.displayed_seconds(
+        now=countdown.synchronized_at + 5
+    ) == 170
+    assert pomodoro.displayed_seconds() == 50
 
 
 def test_timer_snapshot_rejects_incomplete_protocol_data() -> None:
@@ -50,17 +147,22 @@ def test_timer_snapshot_rejects_incomplete_protocol_data() -> None:
             {
                 "state": "active",
                 "elapsed_seconds": 1,
-                "entry": {"title": "Missing session"},
+                "entry": {
+                    "title": "Missing session",
+                    "bound_object": {},
+                    "tags": [],
+                    "accent": "#ffe14d",
+                },
             }
         )
 
 
-def test_timer_widget_size_presets_scale_clock_as_primary_content() -> None:
-    small = SIZE_PRESETS["small"]
-    medium = SIZE_PRESETS["medium"]
-    large = SIZE_PRESETS["large"]
-
-    assert small[:2] == (300, 132)
-    assert small[2] < medium[2] < large[2]
-    assert medium[2] >= 72
-    assert large[2] >= 104
+def test_desktop_snapshot_rejects_parallel_legacy_session_shape() -> None:
+    with pytest.raises(ValueError, match="active_sessions"):
+        parse_timer_state(
+            {
+                "active_session": {},
+                "activities": [],
+                "tag_catalog": [],
+            }
+        )

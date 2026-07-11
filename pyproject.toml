@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "Trayicon for ActivityWatch"
 authors = ["Erik Bjäreholt <erik@bjareho.lt>"]
 license = "MPL-2.0"
-include = ["aw_qt/resources.py"]  # resources.py is in .gitignore and generated before build
+include = [
+    { path = "aw_qt/resources.py", format = ["sdist", "wheel"] },
+    { path = "media/logo/*", format = ["sdist", "wheel"] },
+]
 packages = [
     { include = "aw_qt" },
 ]
@@ -32,6 +35,8 @@ setuptools = "*"
 # keep these in sync
 PyQt6 = "6.5.3"
 PyQt6-Qt6 = "6.5.3"
+PyQt6-WebEngine = "6.5.0"
+PyQt6-WebEngine-Qt6 = "6.5.3"
 
 [tool.poetry.dev-dependencies]
 mypy = "*"

@@ -149,7 +149,10 @@ class TrayIcon(QSystemTrayIcon):
 
         # openWebUIIcon = QIcon.fromTheme("open")
         menu.addAction("Show Time Log Timer", self.command_os.show_timer)
-        menu.addAction("Open Time Log", self.command_os.open_time_log)
+        menu.addAction(
+            "Open Time Log",
+            lambda: self.command_os.open_time_log("launcher"),
+        )
         menu.addAction("Open Dashboard", self.command_os.open_dashboard)
         menu.addAction("Open API Browser", self.command_os.open_api)
         menu.addAction("Log In", self.command_os.authorize)
@@ -365,6 +368,11 @@ def run(
         icon.setIsMask(True)
     else:
         icon = QIcon("icons:logo.png")
+    if icon.isNull():
+        search_paths = ", ".join(QtCore.QDir.searchPaths("icons"))
+        raise RuntimeError(
+            f"ActivityWatch tray icon asset is missing; searched: {search_paths}"
+        )
 
     trayIcon = TrayIcon(
         manager,
