@@ -13,8 +13,10 @@ packages = [
 aw-qt = "aw_qt:main"
 
 [tool.poetry.dependencies]
-python = "^3.8,<3.14"  # PyInstaller needs <3.14
+python = "^3.10,<3.14"  # Command OS desktop auth uses modern typed runtime code; PyInstaller needs <3.14
 aw-core = "^0.5"
+aw-client = { git = "https://github.com/lsobvfe/aw-client.git", rev = "c08656c8ed4fde202a453a81b4a2800c21e38529" }
+tomlkit = "^0.13.3"
 
 pyobjc-framework-Cocoa = { version = "*", platform = "darwin" }
 click = "*"

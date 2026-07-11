@@ -6,7 +6,7 @@ import sys
 import time
 import webbrowser
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import aw_core
 from PyQt6 import QtCore
@@ -20,6 +20,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from .command_os.config import DesktopConfig
+from .command_os.desktop import CommandOSDesktop
 from .manager import Manager, Module
 
 logger = logging.getLogger(__name__)
@@ -83,6 +85,12 @@ class TrayIcon(QSystemTrayIcon):
         parent: Optional[QWidget] = None,
         testing: bool = False,
         port: Optional[int] = None,
+        dashboard_url: str = "",
+        api_url: str = "",
+        command_os_login_url: str = "",
+        command_os_url: str = "",
+        time_log_url: str = "",
+        desktop_modules: Tuple[str, ...] = (),
     ) -> None:
         QSystemTrayIcon.__init__(self, icon, parent)
         self._parent = parent  # QSystemTrayIcon also tries to save parent info but it screws up the type info
@@ -95,6 +103,18 @@ class TrayIcon(QSystemTrayIcon):
         if port is None:
             port = 5666 if testing else 5600
         self.root_url = f"http://localhost:{port}"
+        self.command_os = CommandOSDesktop(
+            DesktopConfig.create(
+                dashboard_url=dashboard_url,
+                activitywatch_api_url=api_url,
+                login_url=command_os_login_url,
+                command_os_url=command_os_url,
+                time_log_url=time_log_url,
+                managed_modules=desktop_modules,
+            ),
+            manager,
+            parent,
+        )
         self.activated.connect(self.on_activated)
 
         self._build_rootmenu()
@@ -118,7 +138,7 @@ class TrayIcon(QSystemTrayIcon):
 
     def on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
-            open_webui(self.root_url)
+            self.command_os.show_timer()
 
     def _build_rootmenu(self) -> None:
         menu = QMenu(self._parent)
@@ -128,8 +148,11 @@ class TrayIcon(QSystemTrayIcon):
             menu.addSeparator()
 
         # openWebUIIcon = QIcon.fromTheme("open")
-        menu.addAction("Open Dashboard", lambda: open_webui(self.root_url))
-        menu.addAction("Open API Browser", lambda: open_apibrowser(self.root_url))
+        menu.addAction("Show Time Log Timer", self.command_os.show_timer)
+        menu.addAction("Open Time Log", self.command_os.open_time_log)
+        menu.addAction("Open Dashboard", self.command_os.open_dashboard)
+        menu.addAction("Open API Browser", self.command_os.open_api)
+        menu.addAction("Log In", self.command_os.authorize)
 
         menu.addSeparator()
 
@@ -266,7 +289,17 @@ def exit(manager: Manager) -> None:
     QApplication.quit()
 
 
-def run(manager: Manager, testing: bool = False, port: Optional[int] = None) -> Any:
+def run(
+    manager: Manager,
+    testing: bool = False,
+    port: Optional[int] = None,
+    dashboard_url: str = "",
+    api_url: str = "",
+    command_os_login_url: str = "",
+    command_os_url: str = "",
+    time_log_url: str = "",
+    desktop_modules: Tuple[str, ...] = (),
+) -> Any:
     logger.info("Creating trayicon...")
     # print(QIcon.themeSearchPaths())
 
@@ -333,8 +366,21 @@ def run(manager: Manager, testing: bool = False, port: Optional[int] = None) -> 
     else:
         icon = QIcon("icons:logo.png")
 
-    trayIcon = TrayIcon(manager, icon, widget, testing=testing, port=port)
+    trayIcon = TrayIcon(
+        manager,
+        icon,
+        widget,
+        testing=testing,
+        port=port,
+        dashboard_url=dashboard_url,
+        api_url=api_url,
+        command_os_login_url=command_os_login_url,
+        command_os_url=command_os_url,
+        time_log_url=time_log_url,
+        desktop_modules=desktop_modules,
+    )
     trayIcon.show()
+    trayIcon.command_os.start()
 
     # Re-apply tooltip after show() to ensure it registers with the
     # platform's system tray backend.  On Windows 11 the tooltip can

@@ -26,13 +26,17 @@ def _log_modules(modules: List["Module"]) -> None:
         logger.debug(f" - {m.name} at {m.path}")
 
 
-ignored_filenames = ["aw-cli", "aw-client", "aw-qt", "aw-qt.desktop", "aw-qt.spec"]
+ignored_filenames = {"aw-cli", "aw-client", "aw-qt", "aw-qt.desktop", "aw-qt.spec"}
+
+
+def _is_ignored_module_name(name: str) -> bool:
+    return name.strip().lower().replace("_", "-") in ignored_filenames
 
 
 def filter_modules(modules: Iterable["Module"]) -> Set["Module"]:
     # Remove things matching the pattern which is not a module
     # Like aw-qt itself, or aw-cli
-    return {m for m in modules if m.name not in ignored_filenames}
+    return {m for m in modules if not _is_ignored_module_name(m.name)}
 
 
 def is_executable(path: str, filename: str) -> bool:
@@ -62,7 +66,7 @@ def _discover_modules_in_directory(path: str) -> List["Module"]:
     for path in matches:
         basename = os.path.basename(path)
         name = _filename_to_name(basename)
-        if name in ignored_filenames:
+        if _is_ignored_module_name(name):
             continue
         if is_executable(path, basename) and basename.startswith("aw-"):
             modules.append(Module(name, Path(path), "bundled"))

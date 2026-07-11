@@ -5,7 +5,7 @@ import subprocess
 import platform
 import signal
 import threading
-from typing import Optional
+from typing import Optional, Tuple
 from time import sleep
 
 import click
@@ -68,12 +68,30 @@ def _acquire_single_instance_lock(testing: bool) -> QLockFile:
     is_flag=True,
     help="Start aw-qt in interactive cli mode (forces --no-gui)",
 )
+@click.option("--dashboard-url", required=True, help="ActivityWatch dashboard URL template.")
+@click.option("--api-url", required=True, help="ActivityWatch API URL.")
+@click.option("--command-os-login-url", required=True, help="Command OS login URL.")
+@click.option("--command-os-url", required=True, help="Command OS server origin.")
+@click.option("--time-log-url", required=True, help="Command OS Time Log frontend URL.")
+@click.option(
+    "--desktop-module",
+    "desktop_modules",
+    multiple=True,
+    required=True,
+    help="ActivityWatch module whose lifecycle is owned by the desktop session.",
+)
 def main(
     testing: bool,
     verbose: bool,
     autostart_modules: Optional[str],
     no_gui: bool,
     interactive_cli: bool,
+    dashboard_url: str,
+    api_url: str,
+    command_os_login_url: str,
+    command_os_url: str,
+    time_log_url: str,
+    desktop_modules: Tuple[str, ...],
 ) -> None:
     # Since the .app can crash when started from Finder for unknown reasons, we send a syslog message here to make debugging easier.
     if platform.system() == "Darwin":
@@ -107,14 +125,27 @@ def main(
         else config.autostart_modules
     )
 
+    managed_module_names = set(desktop_modules)
     manager = Manager(testing=testing)
-    manager.autostart(_autostart_modules)
+    manager.autostart(
+        [name for name in _autostart_modules if name not in managed_module_names]
+    )
 
     if not no_gui and not interactive_cli:
         from . import trayicon  # pylint: disable=import-outside-toplevel
 
         # run the trayicon, wait for signal to quit
-        error_code = trayicon.run(manager, testing=testing, port=config.port)
+        error_code = trayicon.run(
+            manager,
+            testing=testing,
+            port=config.port,
+            dashboard_url=dashboard_url,
+            api_url=api_url,
+            command_os_login_url=command_os_login_url,
+            command_os_url=command_os_url,
+            time_log_url=time_log_url,
+            desktop_modules=desktop_modules,
+        )
     elif interactive_cli:
         # just an experiment, don't really see the use right now
         _interactive_cli(manager)

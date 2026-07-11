@@ -8,13 +8,26 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import aw_qt.manager as manager_module
-from aw_qt.manager import Module
+from aw_qt.manager import Module, filter_modules
 
 
 @pytest.fixture
 def module():
     """Create a test module with a mock path."""
     return Module("aw-test-module", Path("/usr/bin/true"), "system")
+
+
+def test_manager_never_discovers_its_own_entrypoint_aliases():
+    modules = {
+        Module("aw-qt", Path("/tmp/aw-qt.exe"), "system"),
+        Module("aw_qt", Path("/tmp/aw_qt.exe"), "system"),
+        Module("AW-QT", Path("/tmp/AW-QT.EXE"), "system"),
+        Module("aw-watcher-window", Path("/tmp/aw-watcher-window.exe"), "system"),
+    }
+
+    assert {module.name for module in filter_modules(modules)} == {
+        "aw-watcher-window"
+    }
 
 
 class TestModuleToggle:
