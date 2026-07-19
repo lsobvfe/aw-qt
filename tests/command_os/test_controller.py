@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from PyQt6.QtCore import QObject, QCoreApplication, pyqtSignal
 
 from aw_qt.command_os.controller import TimerController
@@ -175,3 +177,51 @@ def test_desktop_controller_starts_stops_and_updates_leisure() -> None:
     assert client.requests[0][0] == "sp.time_log.leisure.start"
     assert client.requests[1][0] == "sp.time_log.leisure.settings.update"
     assert client.requests[1][1]["earn_threshold_minutes"] == 40
+
+    active = parse_timer_state(
+        {
+            "active_sessions": [],
+            "activities": [],
+            "tag_catalog": [],
+            "leisure": {
+                "available": True,
+                "policy": None,
+                "account": {
+                    "balance_seconds": 300,
+                    "progress_seconds": 0,
+                    "threshold_seconds": 1500,
+                },
+                "session": {
+                    "session_id": "leisure-1",
+                    "state": "active",
+                    "source": "earned",
+                    "display_source": "earned",
+                    "started_at": "2026-07-19T00:00:00+00:00",
+                    "fixed_starts_at": None,
+                    "ends_at": "2026-07-19T00:05:00+00:00",
+                    "remaining_seconds": 300,
+                    "consumed_seconds": 0,
+                },
+                "unavailable_reason": "",
+                "synchronized_at": "2026-07-19T00:00:00+00:00",
+            },
+        }
+    )
+    controller._state = active
+    controller.toggle_leisure()
+    assert client.requests[2][0] == "sp.time_log.leisure.pause"
+    assert client.requests[2][1]["session_id"] == "leisure-1"
+
+    assert active.leisure is not None
+    assert active.leisure.session is not None
+    controller._state = replace(
+        active,
+        leisure=replace(
+            active.leisure,
+            session=replace(active.leisure.session, state="paused"),
+        ),
+    )
+    controller.toggle_leisure()
+    controller.stop_leisure()
+    assert client.requests[3][0] == "sp.time_log.leisure.resume"
+    assert client.requests[4][0] == "sp.time_log.leisure.stop"

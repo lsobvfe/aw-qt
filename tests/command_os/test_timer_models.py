@@ -94,14 +94,13 @@ def test_timer_snapshot_projects_running_and_paused_sessions() -> None:
                 },
                 "session": {
                     "session_id": "leisure-1",
-                    "active": True,
+                    "state": "active",
                     "source": "earned",
                     "display_source": "earned",
                     "started_at": "2026-07-19T00:00:00+00:00",
                     "fixed_starts_at": None,
                     "ends_at": "2026-07-19T00:10:00+00:00",
                     "remaining_seconds": 600,
-                    "progress_basis_seconds": 600,
                     "consumed_seconds": 0,
                 },
                 "unavailable_reason": "",
@@ -131,9 +130,43 @@ def test_timer_snapshot_projects_running_and_paused_sessions() -> None:
     assert state.leisure.session.displayed_seconds(
         state.leisure.session.synchronized_at + 30
     ) == 570
-    assert state.leisure.session.progress(
-        state.leisure.session.synchronized_at + 300
-    ) == 0.5
+
+
+def test_paused_leisure_countdown_does_not_advance_locally() -> None:
+    state = parse_timer_state(
+        {
+            "active_sessions": [],
+            "activities": [],
+            "tag_catalog": [],
+            "leisure": {
+                "available": True,
+                "policy": None,
+                "account": {
+                    "balance_seconds": 300,
+                    "progress_seconds": 0,
+                    "threshold_seconds": 1500,
+                },
+                "session": {
+                    "session_id": "leisure-paused",
+                    "state": "paused",
+                    "source": "earned",
+                    "display_source": "earned",
+                    "started_at": "2026-07-19T00:00:00+00:00",
+                    "fixed_starts_at": None,
+                    "ends_at": "2026-07-19T00:05:00+00:00",
+                    "remaining_seconds": 300,
+                    "consumed_seconds": 120,
+                },
+                "unavailable_reason": "",
+                "synchronized_at": "2026-07-19T00:00:00+00:00",
+            },
+        }
+    )
+
+    session = state.leisure.session
+    assert session is not None
+    assert session.is_running is False
+    assert session.displayed_seconds(session.synchronized_at + 90) == 300
 
 
 def test_timer_snapshot_uses_backend_mode_configuration_for_clock_value() -> None:

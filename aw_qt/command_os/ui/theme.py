@@ -38,15 +38,20 @@ TIMER_PALETTES = {
 }
 
 LEISURE_COLOR_STOPS = (
-    (0.0, "#35C77A"),
-    (0.5, "#F2B84B"),
-    (1.0, "#EB5A5A"),
+    (0.0, "#3FC77A"),
+    (0.5, "#F1BE4F"),
+    (1.0, "#E85D5D"),
 )
 LEISURE_TEXT_COLOR = "#102018"
+LEISURE_COLOR_SCALE_SECONDS = 30 * 60
 
 
-def leisure_card_color(progress: float) -> str:
-    value = max(0.0, min(1.0, float(progress)))
+def leisure_card_color(remaining_seconds: int) -> str:
+    remaining = max(
+        0,
+        min(LEISURE_COLOR_SCALE_SECONDS, int(remaining_seconds)),
+    )
+    value = 1.0 - remaining / LEISURE_COLOR_SCALE_SECONDS
     for (left_at, left_color), (right_at, right_color) in zip(
         LEISURE_COLOR_STOPS,
         LEISURE_COLOR_STOPS[1:],

@@ -104,6 +104,39 @@ class TimerController(QObject):
             "leisure",
         )
 
+    def toggle_leisure(self) -> None:
+        leisure = self._state.leisure
+        if leisure is None or leisure.session is None:
+            return
+        if leisure.session.is_running:
+            self.pause_leisure()
+        else:
+            self.resume_leisure()
+
+    def pause_leisure(self) -> None:
+        self._set_leisure_state("pause")
+
+    def resume_leisure(self) -> None:
+        self._set_leisure_state("resume")
+
+    def _set_leisure_state(self, action: str) -> None:
+        leisure = self._state.leisure
+        if leisure is None or leisure.session is None:
+            return
+        session_id = leisure.session.session_id
+        self._track(
+            self._client.execute(
+                f"sp.time_log.leisure.{action}",
+                {
+                    "session_id": session_id,
+                    "idempotency_key": (
+                        f"desktop-leisure-{action}:{session_id}:{uuid4().hex}"
+                    ),
+                },
+            ),
+            "leisure",
+        )
+
     def update_leisure_settings(self, payload: dict) -> None:
         self._track(
             self._client.execute(
@@ -278,6 +311,7 @@ class TimerController(QObject):
         if (
             leisure is not None
             and leisure.session is not None
+            and leisure.session.is_running
             and leisure.session.displayed_seconds() == 0
             and "refresh" not in self._pending.values()
         ):

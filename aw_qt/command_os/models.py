@@ -110,28 +110,24 @@ class LeisurePolicy:
 @dataclass(frozen=True)
 class LeisureSession:
     session_id: str
+    state: str
     source: str
     display_source: str
     ends_at: datetime
     remaining_seconds: int
-    progress_basis_seconds: int
     consumed_seconds: int
     synchronized_at: float
 
-    def displayed_seconds(self, now: float | None = None) -> int:
-        current = monotonic() if now is None else now
-        return max(
-            0,
-            self.remaining_seconds
-            - _whole_elapsed_seconds(current - self.synchronized_at),
-        )
+    @property
+    def is_running(self) -> bool:
+        return self.state == "active"
 
-    def progress(self, now: float | None = None) -> float:
-        remaining = self.displayed_seconds(now)
-        return max(
-            0.0,
-            min(1.0, 1.0 - remaining / max(1, self.progress_basis_seconds)),
-        )
+    def displayed_seconds(self, now: float | None = None) -> int:
+        if not self.is_running:
+            return self.remaining_seconds
+        current = monotonic() if now is None else now
+        elapsed = _whole_elapsed_seconds(current - self.synchronized_at)
+        return max(0, self.remaining_seconds - elapsed)
 
 
 @dataclass(frozen=True)
@@ -319,10 +315,9 @@ def _parse_leisure_policy(payload: dict[str, Any]) -> LeisurePolicy:
 
 
 def _parse_leisure_session(payload: dict[str, Any]) -> LeisureSession:
-    if not _boolean(payload, "active"):
-        raise ValueError("desktop leisure session must be active")
     return LeisureSession(
         session_id=_string(payload, "session_id", required=True),
+        state=_choice(payload, "state", {"active", "paused"}),
         source=_choice(payload, "source", {"fixed", "earned"}),
         display_source=_choice(
             payload,
@@ -331,11 +326,6 @@ def _parse_leisure_session(payload: dict[str, Any]) -> LeisureSession:
         ),
         ends_at=_datetime(payload, "ends_at"),
         remaining_seconds=_integer(payload, "remaining_seconds", minimum=0),
-        progress_basis_seconds=_integer(
-            payload,
-            "progress_basis_seconds",
-            minimum=1,
-        ),
         consumed_seconds=_integer(payload, "consumed_seconds", minimum=0),
         synchronized_at=monotonic(),
     )

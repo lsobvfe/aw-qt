@@ -132,12 +132,15 @@ class FloatingTimerWindow(QWidget):
         if leisure is not None and leisure.session is not None:
             remaining = leisure.session.displayed_seconds()
             self._clock.setText(format_clock(remaining))
+            prefix = "" if leisure.session.is_running else "已暂停  ·  "
             if leisure.session.display_source == "fixed":
                 end_text = leisure.session.ends_at.astimezone().strftime("%H:%M")
-                self._footer.setText(f"固定闲暇  ·  至 {end_text}")
+                self._footer.setText(
+                    f"{prefix}固定闲暇  ·  至 {end_text}"
+                )
             else:
                 self._footer.setText(
-                    "积累闲暇  ·  跨日余额 "
+                    f"{prefix}积累闲暇  ·  余额 "
                     f"{format_clock(leisure.balance_seconds)}"
                 )
             self._footer.setToolTip(self._footer.text())
@@ -153,6 +156,7 @@ class FloatingTimerWindow(QWidget):
             prefix = "" if session.is_running else "已暂停  ·  "
             self._footer.setText(f"{prefix}{session.footer_text}")
         self._footer.setToolTip(self._footer.text())
+        self._apply_theme()
         self.update()
 
     def _apply_metrics(self) -> None:
@@ -208,6 +212,15 @@ class FloatingTimerWindow(QWidget):
         leisure = self._state.leisure
         leisure_active = leisure is not None and leisure.session is not None
         if leisure_active:
+            toggle_leisure = menu.addAction(
+                (
+                    "暂停闲暇时刻"
+                    if leisure.session.is_running
+                    else "继续闲暇时刻"
+                ),
+                self._controller.toggle_leisure,
+            )
+            toggle_leisure.setEnabled(True)
             menu.addAction("结束闲暇时刻", self._controller.stop_leisure)
         else:
             start_leisure = menu.addAction(
@@ -313,7 +326,9 @@ class FloatingTimerWindow(QWidget):
             -SHADOW_INSET,
         )
         if leisure_session is not None:
-            card_color = leisure_card_color(leisure_session.progress())
+            card_color = leisure_card_color(
+                leisure_session.displayed_seconds()
+            )
             painter.setPen(QPen(QColor(LEISURE_TEXT_COLOR), 3))
             painter.setBrush(QColor(card_color))
         else:

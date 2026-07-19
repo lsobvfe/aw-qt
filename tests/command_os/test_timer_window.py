@@ -22,6 +22,8 @@ class FakeController(QObject):
     def __init__(self) -> None:
         super().__init__()
         self.toggle_count = 0
+        self.leisure_toggle_count = 0
+        self.leisure_stop_count = 0
 
     def toggle(self) -> None:
         self.toggle_count += 1
@@ -51,7 +53,10 @@ class FakeController(QObject):
         pass
 
     def stop_leisure(self) -> None:
-        self.toggle_count += 1
+        self.leisure_stop_count += 1
+
+    def toggle_leisure(self) -> None:
+        self.leisure_toggle_count += 1
 
     def update_leisure_settings(self, _payload: dict) -> None:
         pass
@@ -163,20 +168,19 @@ def test_leisure_window_projects_countdown_and_changes_card_color() -> None:
                     "revision": 1,
                 },
                 "account": {
-                    "balance_seconds": 600,
+                    "balance_seconds": 300,
                     "progress_seconds": 0,
                     "threshold_seconds": 1500,
                 },
                 "session": {
                     "session_id": "leisure-1",
-                    "active": True,
+                    "state": "active",
                     "source": "earned",
                     "display_source": "earned",
                     "started_at": "2026-07-19T00:00:00+00:00",
                     "fixed_starts_at": None,
-                    "ends_at": "2026-07-19T00:10:00+00:00",
-                    "remaining_seconds": 600,
-                    "progress_basis_seconds": 600,
+                    "ends_at": "2026-07-19T00:05:00+00:00",
+                    "remaining_seconds": 300,
                     "consumed_seconds": 0,
                 },
                 "unavailable_reason": "",
@@ -188,12 +192,43 @@ def test_leisure_window_projects_countdown_and_changes_card_color() -> None:
     window.show()
     app.processEvents()
 
-    assert window._clock.text() == "00:10:00"
-    assert "跨日余额" in window._footer.text()
+    assert window._clock.text() == "00:05:00"
+    assert window._footer.text() == "积累闲暇  ·  余额 00:05:00"
+    assert "跨日" not in window._footer.text()
     image = window.grab().toImage()
-    assert image.pixelColor(window.width() // 2, window.height() // 2).green() > 130
+    center = image.pixelColor(window.width() // 2, window.height() // 2)
+    assert center.red() > center.green()
 
     QTest.mouseDClick(window, Qt.MouseButton.LeftButton)
     app.processEvents()
-    assert controller.toggle_count == 1
+    assert controller.leisure_toggle_count == 0
+    assert controller.leisure_stop_count == 1
+
+    window.apply_state(
+        parse_timer_state(
+            {
+                "active_sessions": [],
+                "activities": [],
+                "tag_catalog": [],
+                "leisure": {
+                    "available": True,
+                    "policy": {
+                        **state.leisure.policy.command_payload(),
+                        "revision": state.leisure.policy.revision,
+                    },
+                    "account": {
+                        "balance_seconds": 300,
+                        "progress_seconds": 0,
+                        "threshold_seconds": 1500,
+                    },
+                    "session": None,
+                    "unavailable_reason": "",
+                    "synchronized_at": "2026-07-19T00:00:00+00:00",
+                },
+            }
+        )
+    )
+    assert window._clock.styleSheet() == (
+        f"color: {theme.timer_palette.clock};"
+    )
     window.close()
