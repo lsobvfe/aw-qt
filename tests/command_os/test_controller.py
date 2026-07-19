@@ -225,3 +225,82 @@ def test_desktop_controller_starts_stops_and_updates_leisure() -> None:
     controller.stop_leisure()
     assert client.requests[3][0] == "sp.time_log.leisure.resume"
     assert client.requests[4][0] == "sp.time_log.leisure.stop"
+
+
+def test_leisure_start_and_stop_replace_the_complete_desktop_state() -> None:
+    app = QCoreApplication.instance() or QCoreApplication([])
+    client = FakeClient()
+    controller = TimerController(client)
+
+    def payload(*, leisure_active: bool) -> dict:
+        return {
+            "active_sessions": [
+                {
+                    "session_id": "session-1",
+                    "state": "paused" if leisure_active else "active",
+                    "elapsed_seconds": 60,
+                    "entry": {
+                        "title": "Focus",
+                        "label": "Focus",
+                        "bound_object": {"label": "Focus"},
+                        "tags": ["工作"],
+                        "accent": "#69e36d",
+                        "emoji": "◆",
+                        "timer_mode": "countdown",
+                        "countdown_minutes": 25,
+                        "pomodoro_work_minutes": 25,
+                        "pomodoro_rest_minutes": 5,
+                    },
+                }
+            ],
+            "activities": [],
+            "tag_catalog": [],
+            "leisure": {
+                "available": True,
+                "policy": None,
+                "account": {
+                    "balance_seconds": 300,
+                    "progress_seconds": 0,
+                    "threshold_seconds": 1500,
+                },
+                "session": (
+                    {
+                        "session_id": "leisure-1",
+                        "state": "active",
+                        "source": "earned",
+                        "display_source": "earned",
+                        "started_at": "2026-07-19T00:00:00+00:00",
+                        "fixed_starts_at": None,
+                        "ends_at": "2026-07-19T00:05:00+00:00",
+                        "remaining_seconds": 300,
+                        "consumed_seconds": 0,
+                    }
+                    if leisure_active
+                    else None
+                ),
+                "unavailable_reason": "",
+                "synchronized_at": "2026-07-19T00:00:00+00:00",
+            },
+        }
+
+    controller._state = parse_timer_state(payload(leisure_active=False))
+    controller.start_leisure()
+    client.completed.emit("request-1", payload(leisure_active=True))
+    app.processEvents()
+
+    selected = controller.state.selected
+    assert selected is not None
+    assert selected.is_running is False
+
+    controller.stop_leisure()
+    stopped_payload = payload(leisure_active=False)
+    stopped_payload["active_sessions"][0]["state"] = "paused"
+    client.completed.emit("request-2", stopped_payload)
+    app.processEvents()
+
+    selected = controller.state.selected
+    assert selected is not None
+    assert controller.state.leisure is not None
+    assert controller.state.leisure.session is None
+    assert selected.is_running is False
+    assert selected.displayed_seconds(selected.synchronized_at + 30) == 24 * 60

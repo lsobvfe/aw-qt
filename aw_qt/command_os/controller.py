@@ -84,7 +84,7 @@ class TimerController(QObject):
                 "sp.time_log.leisure.start",
                 {"idempotency_key": f"desktop-leisure-start:{uuid4().hex}"},
             ),
-            "leisure",
+            "desktop",
         )
 
     def stop_leisure(self) -> None:
@@ -101,7 +101,7 @@ class TimerController(QObject):
                     ),
                 },
             ),
-            "leisure",
+            "desktop",
         )
 
     def toggle_leisure(self) -> None:
@@ -241,7 +241,7 @@ class TimerController(QObject):
     def _on_completed(self, request_id: str, payload: dict) -> None:
         operation = self._pending.pop(request_id, "")
         try:
-            if operation == "refresh":
+            if operation in {"refresh", "desktop"}:
                 self._state = parse_timer_state(payload, self._state.selected_session_id)
                 logger.info("Time Log desktop state refreshed with %d sessions", len(self._state.sessions))
             elif operation == "session":
