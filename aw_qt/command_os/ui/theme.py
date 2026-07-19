@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from PyQt6.QtCore import QObject, QSettings, Qt, pyqtSignal
-from PyQt6.QtGui import QGuiApplication, QPalette
+from PyQt6.QtGui import QColor, QGuiApplication, QPalette
 
 
 COLOR_MODES = ("system", "light", "dark")
@@ -36,6 +36,34 @@ TIMER_PALETTES = {
         footer="#c9c0af",
     ),
 }
+
+LEISURE_COLOR_STOPS = (
+    (0.0, "#35C77A"),
+    (0.5, "#F2B84B"),
+    (1.0, "#EB5A5A"),
+)
+LEISURE_TEXT_COLOR = "#102018"
+
+
+def leisure_card_color(progress: float) -> str:
+    value = max(0.0, min(1.0, float(progress)))
+    for (left_at, left_color), (right_at, right_color) in zip(
+        LEISURE_COLOR_STOPS,
+        LEISURE_COLOR_STOPS[1:],
+    ):
+        if value > right_at:
+            continue
+        span = max(0.0001, right_at - left_at)
+        offset = (value - left_at) / span
+        left = QColor(left_color)
+        right = QColor(right_color)
+        color = QColor.fromRgbF(
+            left.redF() + (right.redF() - left.redF()) * offset,
+            left.greenF() + (right.greenF() - left.greenF()) * offset,
+            left.blueF() + (right.blueF() - left.blueF()) * offset,
+        )
+        return color.name()
+    return LEISURE_COLOR_STOPS[-1][1]
 
 
 class ThemeManager(QObject):

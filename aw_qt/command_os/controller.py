@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from uuid import uuid4
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
 from .client import CommandClient
-from .models import TimerState, parse_command_session, parse_tag_catalog, parse_timer_state
+from .models import (
+    TimerState,
+    parse_command_session,
+    parse_leisure_state,
+    parse_tag_catalog,
+    parse_timer_state,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +73,49 @@ class TimerController(QObject):
                 },
             ),
             "finish",
+        )
+
+    def start_leisure(self) -> None:
+        leisure = self._state.leisure
+        if leisure is None or not leisure.available or leisure.session is not None:
+            return
+        self._track(
+            self._client.execute(
+                "sp.time_log.leisure.start",
+                {"idempotency_key": f"desktop-leisure-start:{uuid4().hex}"},
+            ),
+            "leisure",
+        )
+
+    def stop_leisure(self) -> None:
+        leisure = self._state.leisure
+        if leisure is None or leisure.session is None:
+            return
+        self._track(
+            self._client.execute(
+                "sp.time_log.leisure.stop",
+                {
+                    "session_id": leisure.session.session_id,
+                    "idempotency_key": (
+                        f"desktop-leisure-stop:{leisure.session.session_id}"
+                    ),
+                },
+            ),
+            "leisure",
+        )
+
+    def update_leisure_settings(self, payload: dict) -> None:
+        self._track(
+            self._client.execute(
+                "sp.time_log.leisure.settings.update",
+                {
+                    **payload,
+                    "idempotency_key": (
+                        f"desktop-leisure-settings:{uuid4().hex}"
+                    ),
+                },
+            ),
+            "leisure",
         )
 
     def start_activity(self, activity_id: str) -> None:
@@ -138,22 +188,15 @@ class TimerController(QObject):
 
     def select(self, session_id: str) -> None:
         if any(item.session_id == session_id for item in self._state.sessions):
-            self._state = TimerState(
-                sessions=self._state.sessions,
-                activities=self._state.activities,
-                tags=self._state.tags,
+            self._state = replace(
+                self._state,
                 selected_session_id=session_id,
-                status=self._state.status,
-                message=self._state.message,
             )
             self._publish()
 
     def report_error(self, message: str) -> None:
-        self._state = TimerState(
-            sessions=self._state.sessions,
-            activities=self._state.activities,
-            tags=self._state.tags,
-            selected_session_id=self._state.selected_session_id,
+        self._state = replace(
+            self._state,
             status="error",
             message=message,
         )
@@ -171,41 +214,47 @@ class TimerController(QObject):
             elif operation == "session":
                 updated = parse_command_session(payload)
                 sessions = tuple(updated if item.session_id == updated.session_id else item for item in self._state.sessions)
-                self._state = TimerState(
+                self._state = replace(
+                    self._state,
                     sessions=sessions,
-                    activities=self._state.activities,
-                    tags=self._state.tags,
                     selected_session_id=updated.session_id,
+                    status="ready",
+                    message="",
                 )
             elif operation == "start":
                 started = parse_command_session(payload)
                 sessions = (started, *tuple(item for item in self._state.sessions if item.session_id != started.session_id))
-                self._state = TimerState(
+                self._state = replace(
+                    self._state,
                     sessions=sessions,
-                    activities=self._state.activities,
-                    tags=self._state.tags,
                     selected_session_id=started.session_id,
+                    status="ready",
+                    message="",
                 )
             elif operation == "tags":
                 raw_tags = payload.get("tags")
                 if not isinstance(raw_tags, list):
                     raise ValueError("tag mutation tags must be a list")
-                self._state = TimerState(
-                    sessions=self._state.sessions,
-                    activities=self._state.activities,
+                self._state = replace(
+                    self._state,
                     tags=parse_tag_catalog(raw_tags),
-                    selected_session_id=self._state.selected_session_id,
+                    status="ready",
+                    message="",
+                )
+            elif operation == "leisure":
+                self._state = replace(
+                    self._state,
+                    leisure=parse_leisure_state(payload),
+                    status="ready",
+                    message="",
                 )
             elif operation == "finish":
                 self.refresh()
                 return
         except (TypeError, ValueError) as exc:
             logger.exception("Time Log desktop state parsing failed")
-            self._state = TimerState(
-                sessions=self._state.sessions,
-                activities=self._state.activities,
-                tags=self._state.tags,
-                selected_session_id=self._state.selected_session_id,
+            self._state = replace(
+                self._state,
                 status="error",
                 message=str(exc),
             )
@@ -216,11 +265,8 @@ class TimerController(QObject):
         self._pending.pop(request_id, None)
         if message == "Desktop authorization is required":
             self.authorization_required.emit()
-        self._state = TimerState(
-            sessions=self._state.sessions,
-            activities=self._state.activities,
-            tags=self._state.tags,
-            selected_session_id=self._state.selected_session_id,
+        self._state = replace(
+            self._state,
             status="error",
             message=message,
         )
@@ -228,3 +274,11 @@ class TimerController(QObject):
 
     def _publish(self) -> None:
         self.state_changed.emit(self._state)
+        leisure = self._state.leisure
+        if (
+            leisure is not None
+            and leisure.session is not None
+            and leisure.session.displayed_seconds() == 0
+            and "refresh" not in self._pending.values()
+        ):
+            self.refresh()

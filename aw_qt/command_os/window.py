@@ -29,7 +29,13 @@ from .ui.dialogs import (
     choose_tags,
     prompt_new_tag,
 )
-from .ui.theme import COLOR_MODES, ThemeManager
+from .ui.leisure_dialog import edit_leisure_settings
+from .ui.theme import (
+    COLOR_MODES,
+    LEISURE_TEXT_COLOR,
+    ThemeManager,
+    leisure_card_color,
+)
 
 
 MINIMUM_TIMER_SIZE = (220, 96)
@@ -122,6 +128,22 @@ class FloatingTimerWindow(QWidget):
 
     def apply_state(self, state: TimerState) -> None:
         self._state = state
+        leisure = state.leisure
+        if leisure is not None and leisure.session is not None:
+            remaining = leisure.session.displayed_seconds()
+            self._clock.setText(format_clock(remaining))
+            if leisure.session.display_source == "fixed":
+                end_text = leisure.session.ends_at.astimezone().strftime("%H:%M")
+                self._footer.setText(f"固定闲暇  ·  至 {end_text}")
+            else:
+                self._footer.setText(
+                    "积累闲暇  ·  跨日余额 "
+                    f"{format_clock(leisure.balance_seconds)}"
+                )
+            self._footer.setToolTip(self._footer.text())
+            self._apply_theme()
+            self.update()
+            return
         session = state.selected
         if session is None:
             self._clock.setText("00:00:00")
@@ -160,9 +182,14 @@ class FloatingTimerWindow(QWidget):
         self._apply_theme()
 
     def _apply_theme(self, _resolved: str = "") -> None:
-        palette = self._theme.timer_palette
-        self._clock.setStyleSheet(f"color: {palette.clock};")
-        self._footer.setStyleSheet(f"color: {palette.footer};")
+        leisure = self._state.leisure
+        if leisure is not None and leisure.session is not None:
+            self._clock.setStyleSheet(f"color: {LEISURE_TEXT_COLOR};")
+            self._footer.setStyleSheet(f"color: {LEISURE_TEXT_COLOR};")
+        else:
+            palette = self._theme.timer_palette
+            self._clock.setStyleSheet(f"color: {palette.clock};")
+            self._footer.setStyleSheet(f"color: {palette.footer};")
         self.update()
 
     def set_always_on_top(self, enabled: bool) -> None:
@@ -178,11 +205,29 @@ class FloatingTimerWindow(QWidget):
     def contextMenuEvent(self, event) -> None:
         menu = QMenu(self)
         session = self._state.selected
+        leisure = self._state.leisure
+        leisure_active = leisure is not None and leisure.session is not None
+        if leisure_active:
+            menu.addAction("结束闲暇时刻", self._controller.stop_leisure)
+        else:
+            start_leisure = menu.addAction(
+                "进入闲暇时刻",
+                self._controller.start_leisure,
+            )
+            start_leisure.setEnabled(
+                leisure is not None and leisure.available
+            )
+        configure_leisure = menu.addAction(
+            "配置闲暇时刻...",
+            self._configure_leisure,
+        )
+        configure_leisure.setEnabled(not leisure_active)
+        menu.addSeparator()
         toggle = menu.addAction("暂停" if session and session.is_running else "继续")
-        toggle.setEnabled(session is not None)
+        toggle.setEnabled(session is not None and not leisure_active)
         toggle.triggered.connect(self._controller.toggle)
         finish = menu.addAction("完成计时")
-        finish.setEnabled(session is not None)
+        finish.setEnabled(session is not None and not leisure_active)
         finish.triggered.connect(self._controller.finish)
         if len(self._state.sessions) > 1:
             sessions_menu = menu.addMenu("切换计时")
@@ -193,13 +238,21 @@ class FloatingTimerWindow(QWidget):
                 action.triggered.connect(lambda _checked=False, session_id=item.session_id: self._controller.select(session_id))
         menu.addSeparator()
         start_event = menu.addAction("开始新事件...")
-        start_event.setEnabled(bool(self._state.activities))
+        start_event.setEnabled(bool(self._state.activities) and not leisure_active)
         start_event.triggered.connect(self._start_activity)
         change_event = menu.addAction("切换当前事件...")
-        change_event.setEnabled(session is not None and bool(self._state.activities))
+        change_event.setEnabled(
+            session is not None
+            and bool(self._state.activities)
+            and not leisure_active
+        )
         change_event.triggered.connect(self._change_activity)
         edit_tags = menu.addAction("编辑当前标签...")
-        edit_tags.setEnabled(session is not None and bool(self._state.tags))
+        edit_tags.setEnabled(
+            session is not None
+            and bool(self._state.tags)
+            and not leisure_active
+        )
         edit_tags.triggered.connect(self._edit_tags)
         menu.addAction("新建标签...", self._create_tag)
         delete_tag = menu.addAction("删除自定义标签...", self._delete_tag)
@@ -242,6 +295,8 @@ class FloatingTimerWindow(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         palette = self._theme.timer_palette
+        leisure = self._state.leisure
+        leisure_session = leisure.session if leisure is not None else None
         shadow = self.rect().adjusted(
             SHADOW_INSET,
             SHADOW_INSET,
@@ -257,8 +312,13 @@ class FloatingTimerWindow(QWidget):
             -SHADOW_INSET,
             -SHADOW_INSET,
         )
-        painter.setPen(QPen(QColor(palette.border), 3))
-        painter.setBrush(QColor(palette.card))
+        if leisure_session is not None:
+            card_color = leisure_card_color(leisure_session.progress())
+            painter.setPen(QPen(QColor(LEISURE_TEXT_COLOR), 3))
+            painter.setBrush(QColor(card_color))
+        else:
+            painter.setPen(QPen(QColor(palette.border), 3))
+            painter.setBrush(QColor(palette.card))
         painter.drawRoundedRect(card, 8, 8)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
@@ -285,7 +345,11 @@ class FloatingTimerWindow(QWidget):
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             self._drag_origin = None
-            self._controller.toggle()
+            leisure = self._state.leisure
+            if leisure is not None and leisure.session is not None:
+                self._controller.stop_leisure()
+            else:
+                self._controller.toggle()
             event.accept()
 
     def resizeEvent(self, event: QResizeEvent) -> None:
@@ -328,6 +392,19 @@ class FloatingTimerWindow(QWidget):
         name = choose_custom_tag(self._state.tags, self)
         if name:
             self._controller.delete_tag(name)
+
+    def _configure_leisure(self) -> None:
+        leisure = self._state.leisure
+        if leisure is not None and leisure.session is not None:
+            return
+        payload = edit_leisure_settings(
+            leisure.policy if leisure is not None else None,
+            self._state.activities,
+            self._state.tags,
+            self,
+        )
+        if payload is not None:
+            self._controller.update_leisure_settings(payload)
 
     def _resize_edges(self, position: QPoint):
         edges = Qt.Edge(0)

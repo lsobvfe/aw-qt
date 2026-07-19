@@ -103,6 +103,18 @@ def test_desktop_controller_uses_shared_event_and_tag_commands() -> None:
                 {"name": "工作", "is_default": True},
                 {"name": "设计", "is_default": False},
             ],
+            "leisure": {
+                "available": False,
+                "policy": None,
+                "account": {
+                    "balance_seconds": 0,
+                    "progress_seconds": 0,
+                    "threshold_seconds": None,
+                },
+                "session": None,
+                "unavailable_reason": "not_configured",
+                "synchronized_at": "2026-07-19T00:00:00+00:00",
+            },
         }
     )
 
@@ -123,3 +135,43 @@ def test_desktop_controller_uses_shared_event_and_tag_commands() -> None:
     ]
     assert client.requests[1][1]["session_id"] == "session-1"
     assert client.requests[2][1]["tags"] == ["工作", "设计"]
+
+
+def test_desktop_controller_starts_stops_and_updates_leisure() -> None:
+    app = QCoreApplication.instance() or QCoreApplication([])
+    client = FakeClient()
+    controller = TimerController(client)
+    controller._state = parse_timer_state(
+        {
+            "active_sessions": [],
+            "activities": [],
+            "tag_catalog": [],
+            "leisure": {
+                "available": True,
+                "policy": None,
+                "account": {
+                    "balance_seconds": 300,
+                    "progress_seconds": 0,
+                    "threshold_seconds": 1500,
+                },
+                "session": None,
+                "unavailable_reason": "",
+                "synchronized_at": "2026-07-19T00:00:00+00:00",
+            },
+        }
+    )
+
+    controller.start_leisure()
+    controller.update_leisure_settings(
+        {
+            "enabled": True,
+            "timezone": "Asia/Shanghai",
+            "earn_threshold_minutes": 40,
+            "reward_minutes": 7,
+            "fixed_windows": [],
+            "selectors": [],
+        }
+    )
+    assert client.requests[0][0] == "sp.time_log.leisure.start"
+    assert client.requests[1][0] == "sp.time_log.leisure.settings.update"
+    assert client.requests[1][1]["earn_threshold_minutes"] == 40

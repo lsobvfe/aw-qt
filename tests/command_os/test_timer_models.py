@@ -76,6 +76,37 @@ def test_timer_snapshot_projects_running_and_paused_sessions() -> None:
                 {"name": "工作", "is_default": True},
                 {"name": "设计", "is_default": False},
             ],
+            "leisure": {
+                "available": True,
+                "policy": {
+                    "enabled": True,
+                    "timezone": "Asia/Shanghai",
+                    "earn_threshold_minutes": 25,
+                    "reward_minutes": 5,
+                    "fixed_windows": [],
+                    "selectors": [],
+                    "revision": 1,
+                },
+                "account": {
+                    "balance_seconds": 600,
+                    "progress_seconds": 0,
+                    "threshold_seconds": 1500,
+                },
+                "session": {
+                    "session_id": "leisure-1",
+                    "active": True,
+                    "source": "earned",
+                    "display_source": "earned",
+                    "started_at": "2026-07-19T00:00:00+00:00",
+                    "fixed_starts_at": None,
+                    "ends_at": "2026-07-19T00:10:00+00:00",
+                    "remaining_seconds": 600,
+                    "progress_basis_seconds": 600,
+                    "consumed_seconds": 0,
+                },
+                "unavailable_reason": "",
+                "synchronized_at": "2026-07-19T00:00:00+00:00",
+            },
         },
         selected_session_id="timer-paused",
     )
@@ -95,6 +126,14 @@ def test_timer_snapshot_projects_running_and_paused_sessions() -> None:
     assert state.activities[0].command_payload()["template_id"] == "template-deep-work"
     assert state.activities[0].command_payload()["priority"] == 5
     assert [tag.name for tag in state.tags] == ["工作", "设计"]
+    assert state.leisure is not None
+    assert state.leisure.session is not None
+    assert state.leisure.session.displayed_seconds(
+        state.leisure.session.synchronized_at + 30
+    ) == 570
+    assert state.leisure.session.progress(
+        state.leisure.session.synchronized_at + 300
+    ) == 0.5
 
 
 def test_timer_snapshot_uses_backend_mode_configuration_for_clock_value() -> None:
@@ -164,5 +203,6 @@ def test_desktop_snapshot_rejects_parallel_legacy_session_shape() -> None:
                 "active_session": {},
                 "activities": [],
                 "tag_catalog": [],
+                "leisure": {},
             }
         )

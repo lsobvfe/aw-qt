@@ -47,6 +47,15 @@ class FakeController(QObject):
     def delete_tag(self, _name: str) -> None:
         pass
 
+    def start_leisure(self) -> None:
+        pass
+
+    def stop_leisure(self) -> None:
+        self.toggle_count += 1
+
+    def update_leisure_settings(self, _payload: dict) -> None:
+        pass
+
 
 def test_timer_window_is_freely_resizable_and_double_click_toggles() -> None:
     app = QApplication.instance() or QApplication([])
@@ -81,6 +90,18 @@ def test_timer_window_is_freely_resizable_and_double_click_toggles() -> None:
                     {"name": "工作", "is_default": True},
                     {"name": "设计", "is_default": False},
                 ],
+                "leisure": {
+                    "available": False,
+                    "policy": None,
+                    "account": {
+                        "balance_seconds": 0,
+                        "progress_seconds": 0,
+                        "threshold_seconds": None,
+                    },
+                    "session": None,
+                    "unavailable_reason": "not_configured",
+                    "synchronized_at": "2026-07-19T00:00:00+00:00",
+                },
             }
         )
     )
@@ -113,6 +134,64 @@ def test_timer_window_is_freely_resizable_and_double_click_toggles() -> None:
     assert window._resize_edges(QPoint(CARD_INSET, CARD_INSET)) == (
         Qt.Edge.LeftEdge | Qt.Edge.TopEdge
     )
+
+    QTest.mouseDClick(window, Qt.MouseButton.LeftButton)
+    app.processEvents()
+    assert controller.toggle_count == 1
+    window.close()
+
+
+def test_leisure_window_projects_countdown_and_changes_card_color() -> None:
+    app = QApplication.instance() or QApplication([])
+    controller = FakeController()
+    theme = ThemeManager()
+    window = FloatingTimerWindow(controller, lambda _view: None, theme)
+    state = parse_timer_state(
+        {
+            "active_sessions": [],
+            "activities": [],
+            "tag_catalog": [],
+            "leisure": {
+                "available": True,
+                "policy": {
+                    "enabled": True,
+                    "timezone": "Asia/Shanghai",
+                    "earn_threshold_minutes": 25,
+                    "reward_minutes": 5,
+                    "fixed_windows": [],
+                    "selectors": [],
+                    "revision": 1,
+                },
+                "account": {
+                    "balance_seconds": 600,
+                    "progress_seconds": 0,
+                    "threshold_seconds": 1500,
+                },
+                "session": {
+                    "session_id": "leisure-1",
+                    "active": True,
+                    "source": "earned",
+                    "display_source": "earned",
+                    "started_at": "2026-07-19T00:00:00+00:00",
+                    "fixed_starts_at": None,
+                    "ends_at": "2026-07-19T00:10:00+00:00",
+                    "remaining_seconds": 600,
+                    "progress_basis_seconds": 600,
+                    "consumed_seconds": 0,
+                },
+                "unavailable_reason": "",
+                "synchronized_at": "2026-07-19T00:00:00+00:00",
+            },
+        }
+    )
+    window.apply_state(state)
+    window.show()
+    app.processEvents()
+
+    assert window._clock.text() == "00:10:00"
+    assert "跨日余额" in window._footer.text()
+    image = window.grab().toImage()
+    assert image.pixelColor(window.width() // 2, window.height() // 2).green() > 130
 
     QTest.mouseDClick(window, Qt.MouseButton.LeftButton)
     app.processEvents()
